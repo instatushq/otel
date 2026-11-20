@@ -1,0 +1,8 @@
+node_modules
+dist
+.build
+.swiftpm
+Package.resolved
+
+# The public repo installs js/ with npm ci, unlike the rest of the monorepo.
+!js/package-lock.json

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "instatus-otel"
+dynamic = ["version"]
+description = "Instatus error tracking for Python servers: an OpenTelemetry distro with a Sentry-compatible API"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "Instatus" }]
+keywords = ["opentelemetry", "otel", "error-tracking", "sentry", "tracing", "logging", "instatus"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: System :: Monitoring",
+  "Typing :: Typed",
+]
+dependencies = [
+  "opentelemetry-api>=1.37,<2",
+  "opentelemetry-sdk>=1.37,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.37,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/instatushq/otel/tree/main/python#readme"
+Repository = "https://github.com/instatushq/otel"
+Issues = "https://github.com/instatushq/otel/issues"
+
+[tool.hatch.version]
+path = "src/instatus_otel/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/instatus_otel"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

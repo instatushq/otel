@@ -1,0 +1,44 @@
+{
+    "name": "instatus/otel",
+    "description": "Errors, logs and traces for PHP on OpenTelemetry, with the Sentry SDK's API.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["opentelemetry", "otel", "otlp", "error-tracking", "errors", "logging", "tracing", "sentry", "psr-3", "monolog", "instatus"],
+    "homepage": "https://github.com/instatushq/otel",
+    "authors": [
+        {
+            "name": "Instatus",
+            "homepage": "https://instatus.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/instatushq/otel/issues",
+        "source": "https://github.com/instatushq/otel"
+    },
+    "require": {
+        "php": ">=8.1",
+        "open-telemetry/api": "^1.10",
+        "open-telemetry/exporter-otlp": "^1.4",
+        "open-telemetry/sdk": "^1.15",
+        "php-http/discovery": "^1.19",
+        "psr/http-client": "^1.0",
+        "psr/http-message": "^1.1 || ^2.0",
+        "psr/log": "^1.1 || ^2.0 || ^3.0"
+    },
+    "suggest": {
+        "guzzlehttp/guzzle": "An HTTP client for the OTLP exporter, if your app has no PSR-18 client yet",
+        "monolog/monolog": "For Instatus\\Logging\\MonologHandler",
+        "ext-protobuf": "Faster OTLP encoding than the pure PHP protobuf library"
+    },
+    "autoload": {
+        "psr-4": {
+            "Instatus\\": "php/src/"
+        },
+        "files": [
+            "php/src/functions.php"
+        ]
+    },
+    "archive": {
+        "exclude": ["/*", "/.*", "!/composer.json", "!/LICENSE", "!/php", "/php/*", "/php/.*", "!/php/src", "!/php/README.md"]
+    }
+}

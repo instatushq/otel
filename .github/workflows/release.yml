@@ -1,0 +1,300 @@
+name: Release
+
+# When main has a version that isn't released yet, checks every package,
+# publishes each one to its registry, then tags v<version> (Swift Package
+# Manager and Packagist read it) and go/v<version> (the Go module's tag).
+# npm, PyPI, RubyGems and NuGet use trusted publishing, so no tokens are
+# stored. A registry whose PUBLISH_<NAME> repository variable isn't "true"
+# is skipped, so a release still tags before every registry is set up.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.version.outputs.published }}
+      tagged: ${{ steps.version.outputs.tagged }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the version
+        id: version
+        run: |
+          version="$(node scripts/check-versions.mjs)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          existing="$(npm view "@instatus/otel@$version" version 2> /dev/null || true)"
+          if [ -n "$existing" ]; then
+            echo "::notice::@instatus/otel@$version is already on npm"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  swift:
+    needs: version
+    if: needs.version.outputs.tagged != 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      - run: swift test
+
+      - run: xcodebuild build -scheme Instatus -destination 'generic/platform=iOS Simulator' -quiet
+
+  go:
+    needs: version
+    if: needs.version.outputs.tagged != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: stable
+          cache-dependency-path: go/go.sum
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  php:
+    needs: version
+    if: needs.version.outputs.tagged != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: php
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: curl, zlib, mbstring, json
+          coverage: none
+          tools: composer:v2
+      - run: composer validate --strict
+        working-directory: .
+      - run: composer update --no-interaction --no-progress
+      - run: vendor/bin/phpunit
+
+  npm:
+    needs: [version, swift]
+    if: needs.version.outputs.tagged != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check
+        working-directory: js
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm test
+          npm run build
+          npm run size
+
+      - name: Publish to npm
+        if: needs.version.outputs.published != 'true'
+        working-directory: js
+        run: |
+          if [[ "$VERSION" == *-* ]]; then
+            npm publish --tag next
+          else
+            npm publish
+          fi
+
+  pypi:
+    needs: version
+    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_PYPI == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - run: python -m pip install --upgrade pip build
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: python/dist
+          skip-existing: true
+
+  rubygems:
+    needs: version
+    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_RUBYGEMS == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: ruby
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+          working-directory: ruby
+      - run: bundle exec rake test
+      - name: Check RubyGems
+        id: rubygems
+        run: |
+          gem_version="${VERSION/-/.pre.}"
+          if curl -fsS -o /dev/null "https://rubygems.org/api/v2/rubygems/instatus-otel/versions/$gem_version.json"; then
+            echo "::notice::instatus-otel $gem_version is already on RubyGems"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+      # A gem's first push must name the account that owns its pending
+      # trusted publisher, and configure-rubygems-credentials can't pass one.
+      - name: Get a RubyGems key
+        if: steps.rubygems.outputs.published != 'true'
+        env:
+          OWNER: ${{ vars.RUBYGEMS_OWNER }}
+        run: |
+          jwt="$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=rubygems.org" | jq -r .value)"
+          body="$(jq -n --arg jwt "$jwt" --arg owner "$OWNER" '{jwt: $jwt} + (if $owner == "" then {} else {owner: $owner} end)')"
+          key="$(curl -fsS -X POST https://rubygems.org/api/v1/oidc/trusted_publisher/exchange_token -H 'Content-Type: application/json' -d "$body" | jq -r .rubygems_api_key)"
+          echo "::add-mask::$key"
+          echo "GEM_HOST_API_KEY=$key" >> "$GITHUB_ENV"
+      - name: Publish to RubyGems
+        if: steps.rubygems.outputs.published != 'true'
+        run: |
+          gem build instatus-otel.gemspec
+          gem push instatus-otel-*.gem
+
+  nuget:
+    needs: version
+    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_NUGET == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: dotnet
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet test Instatus.Otel.sln -c Release
+      - run: dotnet pack src/Instatus.Otel/Instatus.Otel.csproj -c Release -o artifacts
+      - uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        id: nuget
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  maven:
+    needs: version
+    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_MAVEN == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: java/pom.xml
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Check Maven Central
+        id: maven
+        run: |
+          if curl -fsS -o /dev/null "https://repo1.maven.org/maven2/com/instatus/instatus-otel/$VERSION/instatus-otel-$VERSION.pom"; then
+            echo "::notice::com.instatus:instatus-otel:$VERSION is already on Maven Central"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to Maven Central
+        if: steps.maven.outputs.published != 'true'
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B -Prelease deploy
+
+  tag:
+    needs: [version, swift, go, php, npm, pypi, rubygems, nuget, maven]
+    if: >-
+      always() && needs.version.outputs.tagged != 'true' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Tag the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          if [[ "$VERSION" == *-* ]]; then prerelease="--prerelease"; fi
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes $prerelease
+
+      - name: Tag the Go module
+        run: |
+          git tag "go/v$VERSION" "$GITHUB_SHA"
+          git push origin "go/v$VERSION"
+          curl -fsS "https://proxy.golang.org/github.com/instatushq/otel/go/@v/v$VERSION.info" || true

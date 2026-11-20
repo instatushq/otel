@@ -1,0 +1,12 @@
+/js export-ignore
+/swift export-ignore
+/python export-ignore
+/java export-ignore
+/ruby export-ignore
+/dotnet export-ignore
+/scripts export-ignore
+/.github export-ignore
+/Package.swift export-ignore
+/php/tests export-ignore
+/php/phpunit.xml.dist export-ignore
+/php/phpstan.neon.dist export-ignore

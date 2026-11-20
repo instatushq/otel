@@ -5,7 +5,9 @@ name: Release
 # Manager and Packagist read it) and go/v<version> (the Go module's tag).
 # npm, PyPI, RubyGems and NuGet use trusted publishing, so no tokens are
 # stored. A registry whose PUBLISH_<NAME> repository variable isn't "true"
-# is skipped, so a release still tags before every registry is set up.
+# is skipped, so a release still tags before every registry is set up. Run
+# the workflow by hand to publish the current version to a registry that was
+# set up after it was tagged; each registry job skips what is already there.
 on:
   push:
     branches: [main]
@@ -25,6 +27,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       published: ${{ steps.version.outputs.published }}
       tagged: ${{ steps.version.outputs.tagged }}
+      ref: ${{ steps.version.outputs.ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -40,6 +43,9 @@ jobs:
           fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
             echo "tagged=true" >> "$GITHUB_OUTPUT"
+            echo "ref=refs/tags/v$version" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           fi
 
   swift:
@@ -136,7 +142,7 @@ jobs:
 
   pypi:
     needs: version
-    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_PYPI == 'true'
+    if: (needs.version.outputs.tagged != 'true' || github.event_name == 'workflow_dispatch') && vars.PUBLISH_PYPI == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: pypi
@@ -148,6 +154,8 @@ jobs:
         working-directory: python
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
@@ -162,7 +170,7 @@ jobs:
 
   rubygems:
     needs: version
-    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_RUBYGEMS == 'true'
+    if: (needs.version.outputs.tagged != 'true' || github.event_name == 'workflow_dispatch') && vars.PUBLISH_RUBYGEMS == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -175,6 +183,8 @@ jobs:
         working-directory: ruby
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
       - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
         with:
           ruby-version: '4.0'
@@ -209,7 +219,7 @@ jobs:
 
   nuget:
     needs: version
-    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_NUGET == 'true'
+    if: (needs.version.outputs.tagged != 'true' || github.event_name == 'workflow_dispatch') && vars.PUBLISH_NUGET == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -220,6 +230,8 @@ jobs:
         working-directory: dotnet
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: |
@@ -235,7 +247,7 @@ jobs:
 
   maven:
     needs: version
-    if: needs.version.outputs.tagged != 'true' && vars.PUBLISH_MAVEN == 'true'
+    if: (needs.version.outputs.tagged != 'true' || github.event_name == 'workflow_dispatch') && vars.PUBLISH_MAVEN == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -245,6 +257,8 @@ jobs:
         working-directory: java
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin

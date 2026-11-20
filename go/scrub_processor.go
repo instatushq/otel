@@ -3,7 +3,7 @@ package instatus
 import (
 	"context"
 
-	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/attribute"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
@@ -18,11 +18,11 @@ func (scrubProcessor) OnEmit(_ context.Context, record *sdklog.Record) error {
 	}
 	record.SetBody(scrubLogValue("", record.Body(), 0))
 	changed := false
-	attributes := make([]log.KeyValue, 0, record.AttributesLen())
-	record.WalkAttributes(func(attribute log.KeyValue) bool {
-		scrubbed := scrubLogValue(attribute.Key, attribute.Value, 0)
-		changed = changed || !scrubbed.Equal(attribute.Value)
-		attributes = append(attributes, log.KeyValue{Key: attribute.Key, Value: scrubbed})
+	attributes := make([]attribute.KeyValue, 0, record.AttributesLen())
+	record.WalkAttributes(func(field attribute.KeyValue) bool {
+		scrubbed := scrubLogValue(string(field.Key), field.Value, 0)
+		changed = changed || scrubbed != field.Value
+		attributes = append(attributes, attribute.KeyValue{Key: field.Key, Value: scrubbed})
 		return true
 	})
 	if changed {
@@ -31,37 +31,46 @@ func (scrubProcessor) OnEmit(_ context.Context, record *sdklog.Record) error {
 	return nil
 }
 
+func (scrubProcessor) Enabled(context.Context, sdklog.EnabledParameters) bool { return true }
+
 func (scrubProcessor) Shutdown(context.Context) error { return nil }
 
 func (scrubProcessor) ForceFlush(context.Context) error { return nil }
 
-func scrubLogValue(key string, value log.Value, depth int) log.Value {
+func scrubLogValue(key string, value attribute.Value, depth int) attribute.Value {
 	if isSensitiveKey(key) {
-		return log.StringValue(Filtered)
+		return attribute.StringValue(Filtered)
 	}
-	switch value.Kind() {
-	case log.KindString:
-		return log.StringValue(scrubLogString(key, value.AsString()))
-	case log.KindMap:
+	switch value.Type() {
+	case attribute.STRING:
+		return attribute.StringValue(scrubLogString(key, value.AsString()))
+	case attribute.MAP:
 		if depth >= maxScrubDepth {
-			return log.StringValue(truncated)
+			return attribute.StringValue(truncated)
 		}
 		entries := value.AsMap()
-		scrubbed := make([]log.KeyValue, len(entries))
+		scrubbed := make([]attribute.KeyValue, len(entries))
 		for index, entry := range entries {
-			scrubbed[index] = log.KeyValue{Key: entry.Key, Value: scrubLogValue(entry.Key, entry.Value, depth+1)}
+			scrubbed[index] = attribute.KeyValue{Key: entry.Key, Value: scrubLogValue(string(entry.Key), entry.Value, depth+1)}
 		}
-		return log.MapValue(scrubbed...)
-	case log.KindSlice:
+		return attribute.MapValue(scrubbed...)
+	case attribute.SLICE:
 		if depth >= maxScrubDepth {
-			return log.StringValue(truncated)
+			return attribute.StringValue(truncated)
 		}
 		items := value.AsSlice()
-		scrubbed := make([]log.Value, len(items))
+		scrubbed := make([]attribute.Value, len(items))
 		for index, item := range items {
 			scrubbed[index] = scrubLogValue("", item, depth+1)
 		}
-		return log.SliceValue(scrubbed...)
+		return attribute.SliceValue(scrubbed...)
+	case attribute.STRINGSLICE:
+		items := value.AsStringSlice()
+		scrubbed := make([]string, len(items))
+		for index, item := range items {
+			scrubbed[index] = scrubLogString("", item)
+		}
+		return attribute.StringSliceValue(scrubbed)
 	}
 	return value
 }

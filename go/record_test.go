@@ -5,21 +5,22 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 )
 
 func attributeMap(record logRecord) map[string]any {
 	values := map[string]any{}
-	for _, attribute := range record.Attributes {
-		switch attribute.Value.Kind() {
-		case log.KindString:
-			values[attribute.Key] = attribute.Value.AsString()
-		case log.KindBool:
-			values[attribute.Key] = attribute.Value.AsBool()
-		case log.KindInt64:
-			values[attribute.Key] = attribute.Value.AsInt64()
-		case log.KindFloat64:
-			values[attribute.Key] = attribute.Value.AsFloat64()
+	for _, field := range record.Attributes {
+		switch field.Value.Type() {
+		case attribute.STRING:
+			values[string(field.Key)] = field.Value.AsString()
+		case attribute.BOOL:
+			values[string(field.Key)] = field.Value.AsBool()
+		case attribute.INT64:
+			values[string(field.Key)] = field.Value.AsInt64()
+		case attribute.FLOAT64:
+			values[string(field.Key)] = field.Value.AsFloat64()
 		}
 	}
 	return values

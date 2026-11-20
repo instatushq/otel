@@ -100,6 +100,9 @@
     "typescript": "^6.0.2",
     "vitest": "4.1.12"
   },
+  "overrides": {
+    "glob": "^14.0.3"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true

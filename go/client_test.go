@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/log/embedded"
@@ -35,9 +36,9 @@ func newTestPipeline(limit int) (*pipeline, *recordingLogger) {
 
 func recordAttribute(record log.Record, key string) string {
 	value := ""
-	record.WalkAttributes(func(attribute log.KeyValue) bool {
-		if attribute.Key == key {
-			value = attribute.Value.String()
+	record.WalkAttributes(func(field attribute.KeyValue) bool {
+		if string(field.Key) == key {
+			value = field.Value.String()
 			return false
 		}
 		return true
@@ -191,9 +192,9 @@ func TestErrorsGoOnTheActiveSpan(t *testing.T) {
 	if len(events) != 1 || events[0].Name != "exception" {
 		t.Fatalf("events = %#v", events)
 	}
-	for _, attribute := range events[0].Attributes {
-		if attribute.Key == "exception.message" && attribute.Value.AsString() != "charge [Filtered] failed" {
-			t.Errorf("span event not filtered: %q", attribute.Value.AsString())
+	for _, field := range events[0].Attributes {
+		if string(field.Key) == "exception.message" && field.Value.AsString() != "charge [Filtered] failed" {
+			t.Errorf("span event not filtered: %q", field.Value.AsString())
 		}
 	}
 	if len(logger.records) != 1 {

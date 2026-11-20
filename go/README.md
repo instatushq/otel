@@ -21,7 +21,7 @@ with their Go stack, user, tags and release.
 go get github.com/instatushq/otel/go
 ```
 
-It needs Go 1.23 or later.
+It needs Go 1.26 or later.
 
 ## Start
 

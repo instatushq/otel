@@ -153,7 +153,7 @@ func (r logRecord) toOTel() log.Record {
 	record.SetObservedTimestamp(time.Now())
 	record.SetSeverity(r.Severity)
 	record.SetSeverityText(r.SeverityText)
-	record.SetBody(log.StringValue(r.Body))
+	record.SetBody(attribute.StringValue(r.Body))
 	record.AddAttributes(r.Attributes...)
 	return record
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
@@ -40,19 +41,19 @@ func newScrubbedProvider(t *testing.T) (*sdklog.LoggerProvider, *recordingExport
 	return provider, exporter
 }
 
-func exportedAttributes(record sdklog.Record) map[string]log.Value {
-	found := map[string]log.Value{}
-	record.WalkAttributes(func(attribute log.KeyValue) bool {
-		found[attribute.Key] = attribute.Value
+func exportedAttributes(record sdklog.Record) map[string]attribute.Value {
+	found := map[string]attribute.Value{}
+	record.WalkAttributes(func(field attribute.KeyValue) bool {
+		found[string(field.Key)] = field.Value
 		return true
 	})
 	return found
 }
 
-func mapOf(value log.Value) map[string]log.Value {
-	found := map[string]log.Value{}
+func mapOf(value attribute.Value) map[string]attribute.Value {
+	found := map[string]attribute.Value{}
 	for _, entry := range value.AsMap() {
-		found[entry.Key] = entry.Value
+		found[string(entry.Key)] = entry.Value
 	}
 	return found
 }
@@ -106,8 +107,8 @@ func TestSlogRecordsAreFiltered(t *testing.T) {
 func TestSDKRecordsPassTheProcessorUnchanged(t *testing.T) {
 	provider, exporter := newScrubbedProvider(t)
 	var record log.Record
-	record.SetBody(log.StringValue("Error: order 4111111111111111"))
-	record.AddAttributes(log.String("token", "kept"))
+	record.SetBody(attribute.StringValue("Error: order 4111111111111111"))
+	record.AddAttributes(attribute.String("token", "kept"))
 	provider.Logger(SDKName).Emit(context.Background(), record)
 
 	exported := exporter.records[0]
@@ -120,24 +121,25 @@ func TestSDKRecordsPassTheProcessorUnchanged(t *testing.T) {
 }
 
 func TestScrubLogValue(t *testing.T) {
-	nested := log.StringValue("deep")
+	nested := attribute.StringValue("deep")
 	for range maxScrubDepth + 1 {
-		nested = log.MapValue(log.KeyValue{Key: "level", Value: nested})
+		nested = attribute.MapValue(attribute.KeyValue{Key: "level", Value: nested})
 	}
 	cases := []struct {
 		key   string
-		value log.Value
-		want  log.Value
+		value attribute.Value
+		want  attribute.Value
 	}{
-		{"session", log.Int64Value(7), log.StringValue(Filtered)},
-		{"note", log.StringValue("card 4111-1111-1111-1111"), log.StringValue("card [Filtered]")},
-		{"callback_url", log.StringValue("/cb?secret=1"), log.StringValue("/cb?secret=[Filtered]")},
-		{"plain", log.StringValue("ftp://u:p@files.example.com/a"), log.StringValue("ftp://files.example.com/a")},
-		{"ids", log.SliceValue(log.StringValue("4111111111111111"), log.Int64Value(4)), log.SliceValue(log.StringValue(Filtered), log.Int64Value(4))},
-		{"blob", log.BytesValue([]byte("4111111111111111")), log.BytesValue([]byte("4111111111111111"))},
+		{"session", attribute.Int64Value(7), attribute.StringValue(Filtered)},
+		{"note", attribute.StringValue("card 4111-1111-1111-1111"), attribute.StringValue("card [Filtered]")},
+		{"callback_url", attribute.StringValue("/cb?secret=1"), attribute.StringValue("/cb?secret=[Filtered]")},
+		{"plain", attribute.StringValue("ftp://u:p@files.example.com/a"), attribute.StringValue("ftp://files.example.com/a")},
+		{"ids", attribute.SliceValue(attribute.StringValue("4111111111111111"), attribute.Int64Value(4)), attribute.SliceValue(attribute.StringValue(Filtered), attribute.Int64Value(4))},
+		{"cards", attribute.StringSliceValue([]string{"4111111111111111", "ok"}), attribute.StringSliceValue([]string{Filtered, "ok"})},
+		{"blob", attribute.ByteSliceValue([]byte("4111111111111111")), attribute.ByteSliceValue([]byte("4111111111111111"))},
 	}
 	for _, c := range cases {
-		if got := scrubLogValue(c.key, c.value, 0); !got.Equal(c.want) {
+		if got := scrubLogValue(c.key, c.value, 0); got != c.want {
 			t.Errorf("scrubLogValue(%q, %v) = %v, want %v", c.key, c.value, got, c.want)
 		}
 	}

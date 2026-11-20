@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 )
 
@@ -43,28 +44,28 @@ type logRecord struct {
 	Severity     log.Severity
 	SeverityText string
 	Body         string
-	Attributes   []log.KeyValue
+	Attributes   []attribute.KeyValue
 }
 
-func (r logRecord) attribute(key string) (log.Value, bool) {
-	for _, attribute := range r.Attributes {
-		if attribute.Key == key {
-			return attribute.Value, true
+func (r logRecord) attribute(key string) (attribute.Value, bool) {
+	for _, field := range r.Attributes {
+		if string(field.Key) == key {
+			return field.Value, true
 		}
 	}
-	return log.Value{}, false
+	return attribute.Value{}, false
 }
 
 type attributes struct {
 	keys   []string
-	values map[string]log.Value
+	values map[string]attribute.Value
 }
 
 func newAttributes() *attributes {
-	return &attributes{values: map[string]log.Value{}}
+	return &attributes{values: map[string]attribute.Value{}}
 }
 
-func (a *attributes) set(key string, value log.Value) {
+func (a *attributes) set(key string, value attribute.Value) {
 	if _, exists := a.values[key]; !exists {
 		a.keys = append(a.keys, key)
 	}
@@ -85,10 +86,10 @@ func (a *attributes) put(key string, value any) {
 	}
 }
 
-func (a *attributes) list() []log.KeyValue {
-	list := make([]log.KeyValue, 0, len(a.keys))
+func (a *attributes) list() []attribute.KeyValue {
+	list := make([]attribute.KeyValue, 0, len(a.keys))
 	for _, key := range a.keys {
-		list = append(list, log.KeyValue{Key: key, Value: a.values[key]})
+		list = append(list, attribute.KeyValue{Key: attribute.Key(key), Value: a.values[key]})
 	}
 	return list
 }
@@ -112,28 +113,28 @@ func stringify(value any) string {
 	return string(encoded)
 }
 
-func toAttributeValue(value any) (log.Value, bool) {
+func toAttributeValue(value any) (attribute.Value, bool) {
 	if value == nil {
-		return log.Value{}, false
+		return attribute.Value{}, false
 	}
 	reflected := reflect.ValueOf(value)
 	switch reflected.Kind() {
 	case reflect.String:
 		text := cut(reflected.String(), maxValueLength)
-		return log.StringValue(text), text != ""
+		return attribute.StringValue(text), text != ""
 	case reflect.Bool:
-		return log.BoolValue(reflected.Bool()), true
+		return attribute.BoolValue(reflected.Bool()), true
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return log.Int64Value(reflected.Int()), true
+		return attribute.Int64Value(reflected.Int()), true
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		if number := reflected.Uint(); number <= math.MaxInt64 {
-			return log.Int64Value(int64(number)), true
+			return attribute.Int64Value(int64(number)), true
 		}
-		return log.StringValue(fmt.Sprint(value)), true
+		return attribute.StringValue(fmt.Sprint(value)), true
 	case reflect.Float32, reflect.Float64:
-		return log.Float64Value(reflected.Float()), true
+		return attribute.Float64Value(reflected.Float()), true
 	}
-	return log.StringValue(cut(stringify(value), maxValueLength)), true
+	return attribute.StringValue(cut(stringify(value), maxValueLength)), true
 }
 
 func sortedKeys[V any](values map[string]V) []string {
@@ -160,7 +161,7 @@ func putUser(target *attributes, user *User) {
 		return
 	}
 	if id := endUserID(user); id != "" {
-		target.set("enduser.id", log.StringValue(cut(id, maxValueLength)))
+		target.set("enduser.id", attribute.StringValue(cut(id, maxValueLength)))
 	}
 	fields := map[string]string{
 		"id":         user.ID,
@@ -218,17 +219,17 @@ func putException(target *attributes, event *Event, isError bool) {
 	exception := event.Exception
 	if exception == nil {
 		if isError && event.Message != "" {
-			target.set("exception.type", log.StringValue(defaultErrorType))
-			target.set("exception.message", log.StringValue(cut(scrubText(event.Message), maxValueLength)))
+			target.set("exception.type", attribute.StringValue(defaultErrorType))
+			target.set("exception.message", attribute.StringValue(cut(scrubText(event.Message), maxValueLength)))
 		}
 		return
 	}
-	target.set("exception.type", log.StringValue(exceptionTypeOf(exception)))
-	target.set("exception.message", log.StringValue(cut(scrubText(exception.Value), maxValueLength)))
+	target.set("exception.type", attribute.StringValue(exceptionTypeOf(exception)))
+	target.set("exception.message", attribute.StringValue(cut(scrubText(exception.Value), maxValueLength)))
 	if exception.Stacktrace != "" {
-		target.set("exception.stacktrace", log.StringValue(cut(scrubText(exception.Stacktrace), maxStackLength)))
+		target.set("exception.stacktrace", attribute.StringValue(cut(scrubText(exception.Stacktrace), maxStackLength)))
 	}
-	target.set("exception.handled", log.BoolValue(exception.Handled))
+	target.set("exception.handled", attribute.BoolValue(exception.Handled))
 }
 
 func bodyOf(event *Event) string {
@@ -249,7 +250,7 @@ func eventToRecord(event *Event) logRecord {
 	level := severityOf(event.Level)
 	record := newAttributes()
 	putException(record, event, level.number >= log.SeverityError)
-	record.set("log.record.uid", log.StringValue(event.EventID))
+	record.set("log.record.uid", attribute.StringValue(event.EventID))
 
 	// The error's own fields come first and win: receivers cap attribute
 	// counts, and metadata must never push the exception out.
